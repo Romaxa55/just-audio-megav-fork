@@ -70,6 +70,10 @@
     _dataEventChannel = [[BetterEventChannel alloc]
         initWithName:[NSMutableString stringWithFormat:@"com.ryanheise.just_audio.data.%@", _playerId]
            messenger:[registrar messenger]];
+    // 🎵 Добавляем EventChannel для visualizer (как в Android)
+    BetterEventChannel *audioVisualizerEventChannel = [[BetterEventChannel alloc]
+        initWithName:[NSMutableString stringWithFormat:@"com.ryanheise.just_audio.visualizer.%@", _playerId]
+           messenger:[registrar messenger]];
     _index = 0;
     _processingState = psIdle;
     _loopMode = lmLoopOff;

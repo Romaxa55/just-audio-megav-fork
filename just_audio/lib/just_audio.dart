@@ -467,6 +467,9 @@ class AudioPlayer {
   /// A stream of [PlayerEvent]s.
   Stream<PlayerEvent> get playerEventStream => _playerEventSubject.stream;
 
+  /// The unique ID of this player instance (for native channel communication).
+  String? get playerId => _id;
+
   /// The latest [PlaybackEvent].
   PlaybackEvent get playbackEvent => _playerEventSubject.nvalue!.playbackEvent;
 

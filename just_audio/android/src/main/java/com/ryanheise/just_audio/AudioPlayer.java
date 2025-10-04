@@ -15,6 +15,9 @@ import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlaybackException;
 import androidx.media3.exoplayer.LivePlaybackSpeedControl;
 import androidx.media3.exoplayer.LoadControl;
+import androidx.media3.exoplayer.audio.AudioSink;
+import androidx.media3.exoplayer.audio.DefaultAudioSink;
+import androidx.media3.common.audio.AudioProcessor;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.PlaybackParameters;
@@ -81,6 +84,8 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
     private final MethodChannel methodChannel;
     private final BetterEventChannel eventChannel;
     private final BetterEventChannel dataEventChannel;
+    private final BetterEventChannel audioVisualizerEventChannel;
+    private VisualizerAudioProcessor visualizerAudioProcessor;
 
     private ProcessingState processingState;
     private long updatePosition;
@@ -176,6 +181,7 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
         methodChannel.setMethodCallHandler(this);
         eventChannel = new BetterEventChannel(messenger, "com.ryanheise.just_audio.events." + id);
         dataEventChannel = new BetterEventChannel(messenger, "com.ryanheise.just_audio.data." + id);
+        audioVisualizerEventChannel = new BetterEventChannel(messenger, "com.ryanheise.just_audio.visualizer." + id);
         processingState = ProcessingState.idle;
         if (audioLoadConfiguration != null) {
             Map<?, ?> loadControlMap = (Map<?, ?>)audioLoadConfiguration.get("androidLoadControl");
@@ -776,13 +782,33 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
 
     private void ensurePlayerInitialized() {
         if (player == null) {
-            RenderersFactory renderersFactory = (eventHandler, videoListener, audioListener, textOutput, metadataOutput) -> {
-                Renderer[] defaultRenderers = new DefaultRenderersFactory(context)
-                    .createRenderers(eventHandler, videoListener, audioListener, textOutput, metadataOutput);
-                Renderer[] allRenderers = Arrays.copyOf(defaultRenderers, defaultRenderers.length + 1);
-                allRenderers[defaultRenderers.length] = new ObserverRenderer();
-                return allRenderers;
+            // ✅ ВКЛЮЧЕН VisualizerAudioProcessor для реального FFT (как в Yandex Music)
+            visualizerAudioProcessor = new VisualizerAudioProcessor();
+            
+            visualizerAudioProcessor.setOnAudioDataListener(pcmData -> {
+                // ✅ Переключаемся на UI thread для Flutter EventChannel
+                handler.post(() -> {
+                    audioVisualizerEventChannel.success(pcmData);
+                });
+            });
+            
+            // ✅ Создаем RenderersFactory С AudioProcessor для захвата PCM
+            RenderersFactory renderersFactory = new DefaultRenderersFactory(context) {
+                @Override
+                protected AudioSink buildAudioSink(
+                    Context context,
+                    boolean enableFloatOutput,
+                    boolean enableAudioTrackPlaybackParams
+                ) {
+                    // ✅ ВКЛЮЧЕН VisualizerAudioProcessor для реального FFT
+                    return new DefaultAudioSink.Builder(context)
+                        .setAudioProcessors(new AudioProcessor[]{visualizerAudioProcessor})
+                        .setEnableFloatOutput(enableFloatOutput)
+                        .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                        .build();
+                }
             };
+            
             ExoPlayer.Builder builder = new ExoPlayer.Builder(context, renderersFactory);
             builder.setUseLazyPreparation(useLazyPreparation);
             if (loadControl != null) {
@@ -1064,6 +1090,11 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
         }
         eventChannel.endOfStream();
         dataEventChannel.endOfStream();
+        audioVisualizerEventChannel.endOfStream();
+        // ✅ Cleanup visualizerAudioProcessor
+        if (visualizerAudioProcessor != null) {
+            visualizerAudioProcessor.setOnAudioDataListener(null);
+        }
     }
 
     private void abortSeek() {
