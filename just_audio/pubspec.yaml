@@ -18,6 +18,7 @@ dependencies:
   # just_audio_platform_interface:
   #   path: ../just_audio_platform_interface
   just_audio_web: ^0.4.15
+  just_audio_windows: ^0.2.1
   # just_audio_web:
   #   path: ../just_audio_web
   audio_session: ">=0.1.24 <0.3.0"
@@ -53,3 +54,5 @@ flutter:
         sharedDarwinSource: true
       web:
         default_package: just_audio_web
+      windows:
+        default_package: just_audio_windows
