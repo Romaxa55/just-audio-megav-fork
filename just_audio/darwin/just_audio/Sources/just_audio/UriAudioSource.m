@@ -33,12 +33,51 @@
 - (IndexedPlayerItem *)createPlayerItem:(NSString *)uri {
     IndexedPlayerItem *item;
     NSMutableDictionary *assetOptions = [[NSMutableDictionary alloc] init];
-    
+
+    // MegaV-specific: HTTP-proxy support для radio streams.
+    // Передаётся из Dart через AudioSource.uri(headers: ..., tag: ...)
+    // в `darwinAssetOptions` под ключами `megavProxyHost`/`megavProxyPort`.
+    // Если ключи присутствуют — добавляем в asset options
+    // `AVURLAssetHTTPProxyKey` (CFNetwork CFProxy dict). AVPlayer тогда
+    // делает HTTPS CONNECT через 127.0.0.1:<port> → xray → реальный stream.
+    // Это решает проблему когда radio-стрим (radiorecord.ru, hitfm.ru, ...)
+    // блокируется провайдером в стране юзера — стрим идёт через VPN.
+    NSString *megavProxyHost = nil;
+    NSNumber *megavProxyPort = nil;
+
     if (_options != (id)[NSNull null]) {
         NSDictionary *darwinOptions = _options[@"darwinAssetOptions"];
         if (darwinOptions != (id)[NSNull null]) {
             assetOptions[AVURLAssetPreferPreciseDurationAndTimingKey] = darwinOptions[@"preferPreciseDurationAndTiming"];
+            // MegaV proxy keys (не падаем если их нет — обычный плеер без VPN)
+            id host = darwinOptions[@"megavProxyHost"];
+            id port = darwinOptions[@"megavProxyPort"];
+            if ([host isKindOfClass:[NSString class]] && [(NSString *)host length] > 0) {
+                megavProxyHost = (NSString *)host;
+            }
+            if ([port isKindOfClass:[NSNumber class]] && [(NSNumber *)port intValue] > 0) {
+                megavProxyPort = (NSNumber *)port;
+            }
         }
+    }
+
+    if (megavProxyHost != nil && megavProxyPort != nil) {
+        // CFProxy dict — формат документирован в CFNetwork (CFProxySupport.h)
+        // и принимается AVURLAsset через AVURLAssetHTTPProxyKey (iOS 10+,
+        // macOS 10.13+). Один и тот же proxy для HTTP и HTTPS.
+        NSDictionary *proxyDict = @{
+            (NSString *)kCFNetworkProxiesHTTPEnable: @YES,
+            (NSString *)kCFNetworkProxiesHTTPProxy: megavProxyHost,
+            (NSString *)kCFNetworkProxiesHTTPPort: megavProxyPort,
+            @"HTTPSEnable": @YES,
+            @"HTTPSProxy": megavProxyHost,
+            @"HTTPSPort": megavProxyPort,
+        };
+        // Ключ "AVURLAssetHTTPProxyKey" — semi-documented (не в headers, но
+        // работает на iOS/macOS с 10+). См. WWDC 2013 session 510 + WebKit
+        // CachedResourceLoader.cpp. Это стандартный путь проксирования
+        // AVPlayer'а.
+        assetOptions[@"AVURLAssetHTTPProxyKey"] = proxyDict;
     }
     
     if ([uri hasPrefix:@"file://"]) {
