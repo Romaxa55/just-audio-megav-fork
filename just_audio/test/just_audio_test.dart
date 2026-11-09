@@ -198,6 +198,37 @@ void runTests() {
     await player.dispose();
   });
 
+  test('MegaV#148: event-channel-only error reaches errorStream', () async {
+    final player = AudioPlayer();
+    await player.setUrl('https://foo.foo/foo.mp3');
+    final errors = <PlayerException>[];
+    final sub = player.errorStream.listen(errors.add);
+    // just_audio_windows: string code, no errorCode in playback events.
+    mock.mostRecentPlayer!.eventController.addError(
+        PlatformException(code: 'networkError', message: 'Network down'));
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(errors.length, equals(1));
+    expect(errors.single.message, equals('networkError: Network down'));
+    await sub.cancel();
+    await player.dispose();
+  });
+
+  test('MegaV#148: error sent both ways is reported once', () async {
+    final player = AudioPlayer();
+    await player.setUrl('https://foo.foo/foo.mp3');
+    final errors = <PlayerException>[];
+    final sub = player.errorStream.listen(errors.add);
+    // Event-channel error and an errorCode playback event with the same
+    // numeric code and message.
+    mock.mostRecentPlayer!._sendError(404, 'Not found', switchToIdle: false);
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(errors.length, equals(1));
+    expect(errors.single.code, equals(404));
+    expect(errors.single.message, equals('Not found'));
+    await sub.cancel();
+    await player.dispose();
+  });
+
   test('load error', () async {
     final player = AudioPlayer();
     Object? exception;
