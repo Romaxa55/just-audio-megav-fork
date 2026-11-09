@@ -1599,7 +1599,22 @@ class AudioPlayer {
             _active) {
           _setPlatformActive(false)?.catchError((dynamic e) async => null);
         }
-      }, onError: (Object e, [StackTrace? st]) {});
+      }, onError: (Object e, [StackTrace? st]) {
+        // MegaV#148: just_audio_windows 0.2.3 reports mid-stream failures
+        // (MediaFailed/ItemFailed) only as event-channel errors and never puts
+        // errorCode into playback events, so errorStream stayed silent on
+        // Windows. Feed them through the same path as errorCode-in-data events.
+        // Android, iOS and macOS send a numeric code here and always follow it
+        // with a data event carrying errorCode, so those are left to that path.
+        if (_disposed || e is! PlatformException) return;
+        if (int.tryParse(e.code) != null) return;
+        _playerEventSubject.add(playerEvent.copyWith(
+          playbackEvent: playbackEvent.copyWith(
+            errorCode: 0,
+            errorMessage: '${e.code}: ${e.message ?? ''}',
+          ),
+        ));
+      });
     }
 
     Future<AudioPlayerPlatform> setPlatform() async {
